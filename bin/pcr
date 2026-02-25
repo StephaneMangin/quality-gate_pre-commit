@@ -1,0 +1,104 @@
+#!/bin/bash
+# Pre-commit runner - utilise l'orchestrateur canonique
+
+set -e
+
+HOOKS_PRECOMMIT="$HOME/.config/git/hooks/pre-commit"
+HOOKS_CONFIG="$HOME/.config/git/hooks/configs/search-paths.conf"
+
+load_config_value() {
+	local key="$1"
+	if [ ! -f "$HOOKS_CONFIG" ]; then
+		return 0
+	fi
+
+	awk -F= -v target="$key" '
+		$0 ~ /^[[:space:]]*#/ {next}
+		NF >= 2 {
+			k=$1
+			gsub(/^[[:space:]]+|[[:space:]]+$/, "", k)
+			if (k == target) {
+				v=substr($0, index($0, "=")+1)
+				gsub(/^[[:space:]]+|[[:space:]]+$/, "", v)
+				print v
+				exit
+			}
+		}
+	' "$HOOKS_CONFIG"
+}
+
+merge_csv_unique() {
+	printf '%s\n' "$@" | tr ',' '\n' | awk '
+		{
+			gsub(/^[[:space:]]+|[[:space:]]+$/, "", $0)
+			if ($0 != "" && !seen[$0]++) values[++n]=$0
+		}
+		END {
+			for (i=1; i<=n; i++) {
+				printf "%s", values[i]
+				if (i<n) printf ","
+			}
+			printf "\n"
+		}
+	'
+}
+
+source_dirs="$(load_config_value "PYTHON_SOURCE_DIRS")"
+module_dirs="$(load_config_value "MODULE_SEARCH_DIRS")"
+excluded_dirs="$(load_config_value "SEARCH_EXCLUDED_DIRS")"
+
+default_include_merged="$(merge_csv_unique "." "$source_dirs" "$module_dirs")"
+
+export PCR_DEFAULT_INCLUDE_DIRS="${PCR_DEFAULT_INCLUDE_DIRS:-$default_include_merged}"
+export PCR_DEFAULT_EXCLUDE_DIRS="${PCR_DEFAULT_EXCLUDE_DIRS:-$excluded_dirs}"
+
+include_dirs="${PCR_INCLUDE_DIRS:-}"
+exclude_dirs="${PCR_EXCLUDE_DIRS:-}"
+pass_args=()
+
+while [ $# -gt 0 ]; do
+	case "$1" in
+		--include-dirs)
+			if [ $# -lt 2 ]; then
+				echo "[pcr] Missing value for --include-dirs" >&2
+				exit 2
+			fi
+			include_dirs="$2"
+			shift 2
+			;;
+		--include-dirs=*)
+			include_dirs="${1#*=}"
+			shift
+			;;
+		--exclude-dirs)
+			if [ $# -lt 2 ]; then
+				echo "[pcr] Missing value for --exclude-dirs" >&2
+				exit 2
+			fi
+			exclude_dirs="$2"
+			shift 2
+			;;
+		--exclude-dirs=*)
+			exclude_dirs="${1#*=}"
+			shift
+			;;
+		*)
+			pass_args+=("$1")
+			shift
+			;;
+	esac
+done
+
+if [ -n "$include_dirs" ]; then
+	export PCR_INCLUDE_DIRS="$include_dirs"
+fi
+if [ -n "$exclude_dirs" ]; then
+	export PCR_EXCLUDE_DIRS="$exclude_dirs"
+fi
+
+effective_include="${PCR_INCLUDE_DIRS:-<none>}"
+effective_exclude="${PCR_EXCLUDE_DIRS:-<none>}"
+echo "[pcr] include-dirs=$effective_include (default: ${PCR_DEFAULT_INCLUDE_DIRS:-<none>})"
+echo "[pcr] exclude-dirs=$effective_exclude (default: ${PCR_DEFAULT_EXCLUDE_DIRS:-<none>})"
+
+exec "$HOOKS_PRECOMMIT" "${pass_args[@]}"

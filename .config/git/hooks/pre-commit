@@ -1,0 +1,96 @@
+#!/bin/bash
+# =============================================================================
+# pre-commit - Hook Git global (orchestrateur principal)
+# =============================================================================
+# Exécute dans l'ordre :
+# 1. Pre-commit global (hooks universels)
+# 2. Quality gate
+# 3. Pre-commit local du projet
+# 4. Tests de modules (si applicable)
+#
+# Configuration:
+#   core.hooksPath = ~/.config/git/hooks
+# =============================================================================
+
+set -e
+
+HOOKS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Charger les bibliothèques
+# shellcheck disable=SC1091
+source "$HOOKS_DIR/lib/reporting.sh"
+# shellcheck disable=SC1091
+source "$HOOKS_DIR/lib/tool-resolution.sh"
+# shellcheck disable=SC1091
+source "$HOOKS_DIR/lib/common.sh"
+
+# Activer le venv du repo
+activate_repo_venv
+
+# Collecter les arguments (si appelé depuis git hook)
+ARGS=("$@")
+
+# Variables de suivi
+GLOBAL_FAILED=false
+QUALITY_GATE_FAILED=false
+LOCAL_FAILED=false
+ODOO_TESTS_FAILED=false
+
+# =============================================================================
+# Étape 1: Pre-commit global
+# =============================================================================
+# shellcheck disable=SC1091
+source "$HOOKS_DIR/runners/run-global-precommit.sh"
+if ! run_global_precommit "${ARGS[@]}"; then
+    GLOBAL_FAILED=true
+fi
+
+# =============================================================================
+# Étape 2: Quality gate
+# =============================================================================
+# shellcheck disable=SC1091
+source "$HOOKS_DIR/runners/run-quality-gate.sh"
+if ! run_quality_gate; then
+    QUALITY_GATE_FAILED=true
+fi
+
+# =============================================================================
+# Étape 3: Pre-commit local
+# =============================================================================
+# shellcheck disable=SC1091
+source "$HOOKS_DIR/runners/run-local-precommit.sh"
+if ! run_local_precommit "${ARGS[@]}"; then
+    LOCAL_FAILED=true
+fi
+
+# =============================================================================
+# Étape 4: Tests de modules
+# =============================================================================
+# shellcheck disable=SC1091
+source "$HOOKS_DIR/runners/run-odoo-tests.sh"
+if ! run_odoo_tests; then
+    ODOO_TESTS_FAILED=true
+fi
+
+# =============================================================================
+# Résumé final
+# =============================================================================
+
+# Déterminer le résultat global
+if [ "$GLOBAL_FAILED" = "true" ] || [ "$QUALITY_GATE_FAILED" = "true" ] || \
+   [ "$LOCAL_FAILED" = "true" ] || [ "$ODOO_TESTS_FAILED" = "true" ]; then
+
+    # Afficher un résumé des échecs
+    echo ""
+    print_error "Some checks failed:"
+    [ "$GLOBAL_FAILED" = "true" ] && echo "  - Global pre-commit hooks"
+    [ "$QUALITY_GATE_FAILED" = "true" ] && echo "  - Quality gate"
+    [ "$LOCAL_FAILED" = "true" ] && echo "  - Local pre-commit hooks"
+    [ "$ODOO_TESTS_FAILED" = "true" ] && echo "  - Module tests"
+
+    print_final_summary false "Checks failed. Please fix the issues before committing."
+    exit 1
+else
+    print_final_summary true "All checks passed! Ready to commit."
+    exit 0
+fi

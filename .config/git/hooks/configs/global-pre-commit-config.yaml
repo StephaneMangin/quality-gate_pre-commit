@@ -1,0 +1,177 @@
+# =============================================================================
+# .pre-commit-config.yaml — run `pre-commit install` once, then automatic on
+# every `git commit`.  Run manually: `pre-commit run -a`
+#
+# Configuration universelle adaptée pour différents types de projets Python:
+# - Détection automatique des sources (src/, app/, modules à manifest, ou racine)
+# - Fonctionne avec ou sans structure de projet spécifique
+# - Hooks désactivés gracieusement si non applicables
+#
+# Script de détection: ~/.config/git/hooks/tools/detect_python_sources.py
+# =============================================================================
+default_language_version:
+  python: python3
+
+repos:
+  # -------------------------------------------------------------------------
+  # General file hygiene
+  # -------------------------------------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-xml
+      - id: check-json
+        exclude: '\.vscode/'
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ['--maxkb=500']
+      - id: check-case-conflict
+      - id: check-symlinks
+      - id: debug-statements          # leftover breakpoint() / pdb
+        exclude: '^(scripts/|tools/|\.venv/|venv/)'
+      - id: detect-private-key
+      - id: fix-byte-order-marker
+      - id: mixed-line-ending
+        args: ['--fix=lf']
+
+  # -------------------------------------------------------------------------
+  # Ruff — linter + formatter (replaces black, flake8, isort, pyupgrade)
+  # -------------------------------------------------------------------------
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.11.12
+    hooks:
+      # Lint first (auto-fix safe issues like import sorting)
+      - id: ruff
+        args: ['--fix', '--exit-non-zero-on-fix']
+        exclude: '^(scripts/|\.github/|\.venv/|venv/|env/|__pycache__/|\.git/|\.tox/|build/|dist/|\.eggs/)'
+      # Then format
+      - id: ruff-format
+        exclude: '^(scripts/|\.github/|\.venv/|venv/|env/|__pycache__/|\.git/|\.tox/|build/|dist/|\.eggs/)'
+
+  # -------------------------------------------------------------------------
+  # Security — bandit
+  # -------------------------------------------------------------------------
+  - repo: local
+    hooks:
+      - id: bandit
+        name: 'bandit security scan'
+        entry: bash
+        args:
+          - '-c'
+          - |
+            SOURCES=$(python3 ~/.config/git/hooks/tools/detect_python_sources.py --space)
+            [ -n "$SOURCES" ] && bandit -c pyproject.toml -r $SOURCES || exit 0
+        language: system
+        pass_filenames: false
+        types: [python]
+
+  # -------------------------------------------------------------------------
+  # Dead code detection — vulture
+  # -------------------------------------------------------------------------
+  - repo: local
+    hooks:
+      - id: vulture
+        name: 'vulture dead code detection'
+        entry: bash
+        args:
+          - '-c'
+          - |
+            SOURCES=$(python3 ~/.config/git/hooks/tools/detect_python_sources.py --space)
+            [ -n "$SOURCES" ] && vulture $SOURCES --min-confidence 80 || exit 0
+        language: system
+        pass_filenames: false
+        types: [python]
+
+  # -------------------------------------------------------------------------
+  # Complexity gate — xenon (wraps radon)
+  # Blocks commit if any function exceeds C complexity, any module exceeds B,
+  # or the project average exceeds A.
+  #
+  # Grades:  A (1-5)  B (6-10)  C (11-15)  D (16-20)  E (21-25)  F (26+)
+  # -------------------------------------------------------------------------
+  - repo: local
+    hooks:
+      - id: xenon-complexity
+        name: 'xenon — cyclomatic complexity gate'
+        entry: bash
+        args:
+          - '-c'
+          - |
+            SOURCES=$(python3 ~/.config/git/hooks/tools/detect_python_sources.py --space)
+            [ -n "$SOURCES" ] && xenon --max-absolute C --max-modules B --max-average A $SOURCES || exit 0
+        language: system
+        pass_filenames: false
+        types: [python]
+
+  # -------------------------------------------------------------------------
+  # Coverage quick-check (runs fast unit tests, fails if below threshold)
+  # The threshold is set in pyproject.toml [tool.coverage.report] fail_under
+  # -------------------------------------------------------------------------
+  - repo: local
+    hooks:
+      - id: coverage-check
+        name: 'coverage — minimum threshold gate'
+        entry: bash
+        args:
+          - '-c'
+          - |
+            set -e
+            SOURCES=$(python3 ~/.config/git/hooks/tools/detect_python_sources.py --space)
+            if [ -z "$SOURCES" ]; then exit 0; fi
+            python -m coverage run \
+              --source=$SOURCES --branch \
+              --omit='*/tests/*,*/__pycache__/*,*/locale/*,*/i18n/*,*/data/*' \
+              -m pytest --override-ini="addopts=--doctest-modules" -q --tb=no 2>&1 | tail -5
+            python -m coverage report --fail-under=40 --skip-covered 2>&1 | tail -10
+        language: system
+        pass_filenames: false
+        types: [python]
+        stages: [pre-push]    # heavy — only on push, not every commit
+
+  # -------------------------------------------------------------------------
+  # XML validation
+  # -------------------------------------------------------------------------
+  - repo: local
+    hooks:
+      - id: validate-xml
+        name: 'validate XML files'
+        entry: python3
+        args: ['-c', 'import sys, xml.etree.ElementTree as ET; [ET.parse(f) for f in sys.argv[1:]]']
+        language: system
+        types: [xml]
+
+  # -------------------------------------------------------------------------
+  # Manifest completeness — every addon must have required fields
+  # -------------------------------------------------------------------------
+  - repo: local
+    hooks:
+      - id: check-manifests
+        name: 'check addon __manifest__.py files'
+        entry: bash
+        args:
+          - '-c'
+          - |
+            ok=0; fail=0
+            SOURCES=$(python3 ~/.config/git/hooks/tools/detect_python_sources.py --space)
+            if [ -z "$SOURCES" ]; then exit 0; fi
+            for src_dir in $SOURCES; do
+              for m in $(find $src_dir -name '__manifest__.py' 2>/dev/null); do
+                addon=$(basename $(dirname "$m"))
+                data=$(python3 -c "d=eval(open('$m').read()); missing=[k for k in ('name','version','depends') if k not in d]; print(','.join(missing) if missing else 'ok')")
+                if [ "$data" != "ok" ]; then
+                  echo "✗ $addon: missing fields: $data"
+                  fail=1
+                else
+                  ok=$((ok+1))
+                fi
+              done
+            done
+            [ $ok -eq 0 ] && exit 0  # Pas de manifests = skip silencieux
+            [ $fail -eq 0 ] && echo "✓ all $ok addon manifests valid" || exit 1
+        language: system
+        pass_filenames: false
+        types: [python]

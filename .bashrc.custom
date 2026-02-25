@@ -1,0 +1,4 @@
+# Source Odoo testing functions if the file exists.
+if [ -f ~/.odoo_functions ]; then
+    source ~/.odoo_functions
+fi

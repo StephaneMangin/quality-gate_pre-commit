@@ -1,0 +1,9 @@
+[core]
+   excludesfile = ~/.gitignore
+	editor = vim
+	hooksPath = /home/blacknight/.config/git/hooks
+[user]
+	email = stephane.mangin@webmel.com
+	name = Stéphane Mangin
+[url "git@github.com:"]
+	insteadOf = https://github.com/

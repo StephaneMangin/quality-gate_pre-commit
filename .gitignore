@@ -1,0 +1,23 @@
+# Politique stricte: tout est ignoré par défaut
+*
+
+# Répertoires parents nécessaires pour ré-inclure des fichiers précis
+!bin/
+!.config/
+!.config/git/
+!.config/git/hooks/
+!.config/git/hooks/**
+
+# Fichiers racine du projet
+!.bashrc.custom
+!.odoo_functions
+!.gitconfig
+!.gitignore
+!LICENSE
+!README.md
+
+# Binaires/scripts du projet
+!bin/pcr
+
+# pycache
+__pycache__/

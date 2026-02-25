@@ -1,0 +1,384 @@
+#!/bin/bash
+
+# ==============================================================================
+# Odoo Test Runner Configuration
+# ==============================================================================
+# Odoo configuration file to use for tests.
+# Only set if not already defined to avoid errors on re-sourcing.
+if [ -z "$ODOO_CONFIG" ]; then
+  ODOO_CONFIG="odoo-ci.cfg"
+fi
+# Browser to open the coverage report in.
+if [ -z "$COVERAGE_BROWSER" ]; then
+  COVERAGE_BROWSER="brave"
+fi
+
+
+# ==============================================================================
+# Odoo Test Runner Functions
+# ==============================================================================
+
+# Displays the usage message for the odootest command.
+_odootest_usage() {
+    echo "Usage: odootest [options] [module_name...]"
+    echo "Options:"
+    echo "  -o         Run Odoo tests"
+    echo "  -p         Run Pytest with coverage"
+    echo "  -d         Drop and recreate the test database before running tests"
+    echo "  -n         Open coverage report in ${COVERAGE_BROWSER} (only with -p)"
+    echo "  -h         Show this help message"
+    echo ""
+    echo "If no module_name is provided, all tests will be executed."
+}
+
+# Helper function to ensure an environment variable is set, prompting the user if not.
+# The variable is read from/saved to the .env file and exported.
+# Arguments:
+#   $1: The name of the variable (e.g., ODOO_DB).
+#   $2: The prompt to show the user if the variable is not defined.
+#   $3: (Optional) A default value if the user provides no input.
+# Returns:
+#   The value of the variable.
+_odootest_ensure_env_var() {
+    local var_name=$1
+    local prompt_message=$2
+    local default_value=$3
+    local env_file=".env"
+    local var_value
+
+    # 1. Try to get the value from the environment first, then from .env file.
+    var_value=${!var_name}
+    if [ -z "$var_value" ] && [ -f "$env_file" ]; then
+        var_value=$(grep "^${var_name}=" "$env_file" | cut -d'=' -f2-)
+    fi
+
+    # 2. If still not found, prompt the user.
+    if [ -z "$var_value" ]; then
+        read -p "$prompt_message" var_value
+        if [ -z "$var_value" ] && [ -n "$default_value" ]; then
+            var_value=$default_value
+        fi
+
+        if [ -z "$var_value" ]; then
+            echo "### ODOO TEST: ERROR: A value is required for ${var_name}." >&2
+            return 1
+        fi
+
+        # 3. Save the new value to the .env file.
+        touch "$env_file"
+        # Atomically update the .env file.
+        grep -v "^${var_name}=" "$env_file" > "$env_file.tmp" && mv "$env_file.tmp" "$env_file"
+        echo "${var_name}=${var_value}" >> "$env_file"
+    fi
+
+    # 4. Export the variable to make it available to subprocesses.
+    export "${var_name}"="${var_value}"
+    echo "$var_value"
+}
+
+# Normalizes a module name by removing prefixes and replacing hyphens.
+# Example: odoo-addon-my-module -> my_module
+# Arguments:
+#   $1: The raw module name.
+# Returns:
+#   The normalized module name.
+_odootest_normalize_module_name() {
+    local module_name=$1
+    # Remove odoo-addon- or odoo_addon_ prefixes.
+    module_name=${module_name#odoo-addon-}
+    module_name=${module_name#odoo_addon_}
+    # Replace hyphens with underscores for Python import compatibility.
+    echo "${module_name//-/_}"
+}
+
+# Finds the absolute path of an Odoo module.
+# It first searches for local modules in the addons path, then for modules
+# installed via pip in the virtual environment.
+# Arguments:
+#   $1: The normalized module name.
+#   $2: The path to local addons.
+# Returns:
+#   The absolute path to the module directory, or exits with an error if not found.
+_odootest_find_module_path() {
+    local module_name=$1
+    local addons_path=$2
+    local module_path=""
+    local python_executable="python"
+
+    # If a virtualenv is present, use its python executable. This is more reliable
+    # than relying on the system's default python.
+    if [ -f ".venv/bin/python" ]; then
+        python_executable=".venv/bin/python"
+    fi
+
+    # 1. Check in the specified local addons path first. This is for modules
+    # that are part of the project's source code.
+    if [ -d "$addons_path/$module_name" ]; then
+        module_path=$(readlink -f "$addons_path/$module_name")
+        echo "$module_path"
+        return 0
+    fi
+
+    # 2. If not found, ask python for the module path directly. This handles
+    # modules installed in the virtual environment (e.g., via pip).
+    module_path=$($python_executable -c "import sys; sys.path.append('.'); from odoo.addons import $module_name; print($module_name.__path__[0])" 2>/dev/null)
+
+    if [ -n "$module_path" ]; then
+        echo "$module_path"
+        return 0
+    fi
+
+    echo "### ODOO TEST: ERROR: Module '$module_name' not found." >&2
+    return 1
+}
+
+# Drops and recreates the test database, then initializes it.
+# If a module name is provided, only that module is installed.
+# Otherwise, all modules found in the project are installed.
+# Arguments:
+#   $1: The database name.
+#   $2: (Optional) The name of the module to install.
+_odootest_setup_database() {
+    local db_name=$1
+    local modules_to_install=$2
+
+    # Always ensure common dependencies are included for installation.
+    local common_deps=("queue_job" "web" "privacy_lookup" "sms" "snailmail" "digest")
+    for dep in "${common_deps[@]}"; do
+        if [[ ! ",$modules_to_install," =~ ",$dep," ]]; then
+            if [ -n "$modules_to_install" ]; then
+                modules_to_install="$dep,$modules_to_install"
+            else
+                modules_to_install="$dep"
+            fi
+        fi
+    done
+
+    echo "### ODOO TEST: Setting up database '$db_name' on host 'localhost'..."
+    psql -d postgres -c "DROP DATABASE IF EXISTS $db_name;"
+    psql -d postgres -c "CREATE DATABASE $db_name;"
+
+    if [ -z "$modules_to_install" ]; then
+        # If no modules are specified, find all local modules to install.
+        # - find: search for __manifest__.py files up to 3 levels deep.
+        # - ! -path: exclude common development directories.
+        # - dirname/basename: extract module names from paths.
+        # - sort -u: get unique module names.
+        # - tr/sed: format as a comma-separated list for Odoo.
+        local all_modules
+        all_modules=$(find . -maxdepth 3 -name '__manifest__.py' -type f \
+            ! -path './.venv/*' ! -path './venv/*' ! -path './.git/*' ! -path './build/*' 2>/dev/null \
+            | xargs -I{} dirname {} \
+            | xargs -I{} basename {} \
+            | sort -u \
+            | tr '\n' ',' \
+            | sed 's/,$//')
+
+        if [ -n "$all_modules" ]; then
+            modules_to_install=$all_modules
+        else
+            modules_to_install="base"
+        fi
+    fi
+
+    echo "### ODOO TEST: Installing modules: $modules_to_install"
+    odoo -c "$ODOO_CONFIG" -d "$db_name" --stop-after-init -i "$modules_to_install"
+}
+
+# Runs Odoo's built-in tests for a specific module or for the entire project.
+# Arguments:
+#   $1: The database name.
+#   $2: (Optional) A comma-separated string of module names to test.
+#   $3: (Optional) Boolean flag to update modules before testing.
+_odootest_run_odoo_tests() {
+    local db_name=$1
+    local modules_csv=$2
+
+    local odoo_cmd_args=(
+        -c "$ODOO_CONFIG"
+        -p "8069"
+        -d "$db_name"
+        --stop-after-init
+    )
+
+    if [ -n "$modules_csv" ]; then
+        echo "### ODOO TEST: Running Odoo tests..."
+        # Format for --test-tags is /module1,/module2,...
+        local test_tags="/$(echo "$modules_csv" | sed 's/,/,\//g')"
+        odoo "${odoo_cmd_args[@]}" -i "$modules_csv" -u "$modules_csv" --test-enable --test-tags "$test_tags"
+    else
+        odoo "${odoo_cmd_args[@]}" --test-enable
+    fi
+}
+
+# Runs Pytest with coverage for a given module.
+# Arguments:
+#   $1: The database name.
+#   $2: Boolean flag to open the coverage report in a browser.
+#   $@: The paths to the modules to test.
+_odootest_run_pytest() {
+    local db_name=$1
+    local open_browser=$2
+    shift 2
+    local module_paths=("$@")
+
+    if [ ${#module_paths[@]} -eq 0 ]; then
+        echo "### ODOO TEST: No module paths provided to pytest."
+        return
+    fi
+
+    echo "### ODOO TEST: Running Pytest with coverage..."
+
+    local pytest_args=()
+    for path in "${module_paths[@]}"; do
+        pytest_args+=(--cov="$path" "$path")
+    done
+
+    python - "$db_name" "${pytest_args[@]}" <<'PY'
+import importlib
+import sys
+
+import odoo
+
+if not hasattr(odoo, "tools"):
+    odoo.tools = importlib.import_module("odoo.tools")
+
+import pytest
+
+args = [
+    f"--odoo-database={sys.argv[1]}",
+    *sys.argv[2:],
+    "--cov-report=html:htmlcov",
+    "--cov-report=term-missing",
+]
+
+raise SystemExit(pytest.main(args))
+PY
+
+    if [ "$open_browser" = true ]; then
+        ${COVERAGE_BROWSER} htmlcov/index.html
+    fi
+}
+
+# Main test runner function.
+# Parses command-line options and orchestrates the testing process.
+odootest() {
+    local run_odoo=false
+    local run_pytest=false
+    local drop_database=false
+    local open_brave=false
+    local OPTIND opt
+    local exit_code=0
+
+    # --- Option Parsing ---
+    while getopts "opdnh" opt; do
+        case "$opt" in
+            o) run_odoo=true ;;
+            p) run_pytest=true ;;
+            d) drop_database=true ;;
+            n) open_brave=true ;;
+            h|\?) _odootest_usage; return 0 ;;
+            *) return 1 ;;
+        esac
+    done
+    shift $((OPTIND-1))
+
+    # --- Environment Configuration ---
+    # Set project-specific defaults for database names.
+    local project_name
+    project_name=$(basename "$PWD" | tr '-' '_') # Sanitize for db name.
+
+    local odoo_db_default="${project_name}"
+    local test_db_name_default="${project_name}_test"
+
+    # Ensure ODOO_DB is set (for general dev purposes).
+    _odootest_ensure_env_var "ODOO_DB" "Enter Odoo database name [${odoo_db_default}]: " "${odoo_db_default}" > /dev/null
+    if [ $? -ne 0 ]; then return 1; fi
+
+    # Get the test database name, using a project-specific default.
+    local test_db_name
+    test_db_name=$(_odootest_ensure_env_var "ODOO_TEST_DB" "Enter Odoo test database name [${test_db_name_default}]: " "${test_db_name_default}")
+    if [ -z "$test_db_name" ]; then return 1; fi
+
+    local addons_path
+    addons_path=$(_odootest_ensure_env_var "ODOO_ADDONS_PATH" "Enter local addons path [odoo/addons]: " "odoo/addons")
+    if [ -z "$addons_path" ]; then return 1; fi
+
+    # --- Module Resolution & Test Execution ---
+    local modules_to_test=("$@")
+
+    # If no modules are specified, run tests for the whole project.
+    if [ ${#modules_to_test[@]} -eq 0 ]; then
+        echo "### ODOO TEST: No module specified - running all tests for the project."
+        if [ "$drop_database" = true ]; then
+            _odootest_setup_database "$test_db_name" ""
+        fi
+        if [ "$run_odoo" = true ]; then
+            odoo -c "$ODOO_CONFIG" -d "$test_db_name" --stop-after-init --test-enable
+            exit_code=$?
+        fi
+        if [ "$run_pytest" = true ] && [ "$exit_code" -eq 0 ]; then
+            _odootest_run_pytest "$test_db_name" "$open_brave" "$addons_path"
+            exit_code=$?
+        fi
+        return $exit_code
+    fi
+
+    # --- Handle multiple modules ---
+    local normalized_modules=()
+    local module_paths=()
+    local failed_to_find=false
+
+    for module_arg in "${modules_to_test[@]}"; do
+        local module_name
+        module_name=$(_odootest_normalize_module_name "$module_arg")
+        local module_path
+        module_path=$(_odootest_find_module_path "$module_name" "$addons_path")
+
+        if [ -z "$module_path" ]; then
+            echo "### ODOO TEST: Error: Module '$module_name' not found." >&2
+            failed_to_find=true
+        else
+            normalized_modules+=("$module_name")
+            module_paths+=("$module_path")
+        fi
+    done
+
+    if [ "$failed_to_find" = true ]; then
+        echo "### ODOO TEST: Aborting due to one or more modules not being found."
+        return 1
+    fi
+
+    local modules_to_test_csv
+    modules_to_test_csv=$(IFS=,; echo "${normalized_modules[*]}")
+
+    # If -d is passed, set up the database once with all specified modules + dependencies.
+    if [ "$drop_database" = true ]; then
+        _odootest_setup_database "$test_db_name" "$modules_to_test_csv"
+    fi
+
+    echo "========================================"
+    echo "Running tests for modules:"
+    for m in "${normalized_modules[@]}"; do
+        echo "  - $m"
+    done
+    echo "========================================"
+
+    if [ "$run_odoo" = true ]; then
+        # If not dropping, we need to update and test.
+        _odootest_run_odoo_tests "$test_db_name" "$modules_to_test_csv"
+        exit_code=$?
+    fi
+
+    if [ "$run_pytest" = true ] && [ "$exit_code" -eq 0 ]; then
+        # If not dropping DB and Odoo tests didn't run, update modules for Pytest.
+        if [ "$drop_database" != true ] && [ "$run_odoo" != true ] && [ -n "$modules_to_test_csv" ]; then
+            echo "### ODOO TEST: Updating modules for Pytest: $modules_to_test_csv"
+            odoo -c "$ODOO_CONFIG" -d "$test_db_name" -u "$modules_to_test_csv" --stop-after-init
+        fi
+        _odootest_run_pytest "$test_db_name" "$open_brave" "${module_paths[@]}"
+        exit_code=$?
+    fi
+
+    return $exit_code
+}
