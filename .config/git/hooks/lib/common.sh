@@ -168,3 +168,33 @@ strip_all_files_args() {
         echo "$arg"
     done
 }
+
+# Exécute pre-commit avec filtres include/exclude optionnels.
+# Retourne:
+#   0..N code retour pre-commit
+#   10 si aucun fichier ne matche les filtres
+run_precommit_with_optional_filters() {
+    local precommit_bin="$1"
+    local config_path="$2"
+    local include_dirs="$3"
+    local exclude_dirs="$4"
+    shift 4
+    local args=("$@")
+
+    if [ -n "$include_dirs" ] || [ -n "$exclude_dirs" ]; then
+        local -a filtered_files=()
+        local -a filtered_args=()
+
+        mapfile -t filtered_files < <(build_filtered_file_list "$include_dirs" "$exclude_dirs")
+        mapfile -t filtered_args < <(strip_all_files_args "${args[@]}")
+
+        if [ ${#filtered_files[@]} -eq 0 ]; then
+            return 10
+        fi
+
+        "$precommit_bin" run --config "$config_path" "${filtered_args[@]}" --files "${filtered_files[@]}"
+        return $?
+    fi
+
+    "$precommit_bin" run --config "$config_path" "${args[@]}"
+}

@@ -39,25 +39,19 @@ run_global_precommit() {
 
     # pre-commit peut retourner exit code 1 pour auto-fixes (non bloquant)
     set +e
-    if [ -n "$include_dirs" ] || [ -n "$exclude_dirs" ]; then
-        local -a filtered_files=()
-        local -a filtered_args=()
-
-        mapfile -t filtered_files < <(build_filtered_file_list "$include_dirs" "$exclude_dirs")
-        mapfile -t filtered_args < <(strip_all_files_args "${args[@]}")
-
-        if [ ${#filtered_files[@]} -eq 0 ]; then
-            print_skip "No files match include/exclude filters for global hooks"
-            set -e
-            return 0
-        fi
-
-        "$precommit_bin" run --config "$GLOBAL_CONFIG" "${filtered_args[@]}" --files "${filtered_files[@]}"
-    else
-        "$precommit_bin" run --config "$GLOBAL_CONFIG" "${args[@]}"
-    fi
+    run_precommit_with_optional_filters \
+        "$precommit_bin" \
+        "$GLOBAL_CONFIG" \
+        "$include_dirs" \
+        "$exclude_dirs" \
+        "${args[@]}"
     local exit_code=$?
     set -e
+
+    if [ $exit_code -eq 10 ]; then
+        print_skip "No files match include/exclude filters for global hooks"
+        return 0
+    fi
 
     if [ $exit_code -eq 0 ]; then
         print_success "Global pre-commit passed"

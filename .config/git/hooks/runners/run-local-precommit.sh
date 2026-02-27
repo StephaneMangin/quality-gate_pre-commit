@@ -43,25 +43,13 @@ run_local_precommit() {
     local staged_files_before
     staged_files_before=$(get_staged_files)
 
-    local -a run_args=("${args[@]}")
-    local -a filtered_files=()
-    if [ -n "$include_dirs" ] || [ -n "$exclude_dirs" ]; then
-        mapfile -t filtered_files < <(build_filtered_file_list "$include_dirs" "$exclude_dirs")
-        mapfile -t run_args < <(strip_all_files_args "${args[@]}")
-
-        if [ ${#filtered_files[@]} -eq 0 ]; then
-            print_skip "No files match include/exclude filters for local hooks"
-            set -e
-            return 0
-        fi
-    fi
-
     run_local_once() {
-        if [ ${#filtered_files[@]} -gt 0 ]; then
-            "$precommit_bin" run --config "$LOCAL_CONFIG" "${run_args[@]}" --files "${filtered_files[@]}"
-        else
-            "$precommit_bin" run --config "$LOCAL_CONFIG" "${run_args[@]}"
-        fi
+        run_precommit_with_optional_filters \
+            "$precommit_bin" \
+            "$LOCAL_CONFIG" \
+            "$include_dirs" \
+            "$exclude_dirs" \
+            "${args[@]}"
     }
 
     # Tentative 1
@@ -69,6 +57,11 @@ run_local_precommit() {
     run_local_once
     local exit_code=$?
     set -e
+
+    if [ $exit_code -eq 10 ]; then
+        print_skip "No files match include/exclude filters for local hooks"
+        return 0
+    fi
 
 
     # Succès immédiat
