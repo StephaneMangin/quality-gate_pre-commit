@@ -43,62 +43,91 @@ merge_csv_unique() {
 	'
 }
 
-source_dirs="$(load_config_value "PYTHON_SOURCE_DIRS")"
-module_dirs="$(load_config_value "MODULE_SEARCH_DIRS")"
-excluded_dirs="$(load_config_value "SEARCH_EXCLUDED_DIRS")"
+init_defaults_from_config() {
+	local source_dirs
+	local module_dirs
+	local excluded_dirs
+	local default_include_merged
 
-default_include_merged="$(merge_csv_unique "." "$source_dirs" "$module_dirs")"
+	source_dirs="$(load_config_value "PYTHON_SOURCE_DIRS")"
+	module_dirs="$(load_config_value "MODULE_SEARCH_DIRS")"
+	excluded_dirs="$(load_config_value "SEARCH_EXCLUDED_DIRS")"
+	default_include_merged="$(merge_csv_unique "." "$source_dirs" "$module_dirs")"
 
-export PCR_DEFAULT_INCLUDE_DIRS="${PCR_DEFAULT_INCLUDE_DIRS:-$default_include_merged}"
-export PCR_DEFAULT_EXCLUDE_DIRS="${PCR_DEFAULT_EXCLUDE_DIRS:-$excluded_dirs}"
+	export PCR_DEFAULT_INCLUDE_DIRS="${PCR_DEFAULT_INCLUDE_DIRS:-$default_include_merged}"
+	export PCR_DEFAULT_EXCLUDE_DIRS="${PCR_DEFAULT_EXCLUDE_DIRS:-$excluded_dirs}"
+}
+
+parse_cli_args() {
+	local -n out_include_ref=$1
+	local -n out_exclude_ref=$2
+	local -n out_args_ref=$3
+	shift 3
+
+	while [ $# -gt 0 ]; do
+		case "$1" in
+			--include-dirs)
+				if [ $# -lt 2 ]; then
+					echo "[pcr] Missing value for --include-dirs" >&2
+					exit 2
+				fi
+				out_include_ref="$2"
+				shift 2
+				;;
+			--include-dirs=*)
+				out_include_ref="${1#*=}"
+				shift
+				;;
+			--exclude-dirs)
+				if [ $# -lt 2 ]; then
+					echo "[pcr] Missing value for --exclude-dirs" >&2
+					exit 2
+				fi
+				out_exclude_ref="$2"
+				shift 2
+				;;
+			--exclude-dirs=*)
+				out_exclude_ref="${1#*=}"
+				shift
+				;;
+			*)
+				out_args_ref+=("$1")
+				shift
+				;;
+		esac
+	done
+}
+
+apply_filter_env() {
+	local include_dirs="$1"
+	local exclude_dirs="$2"
+
+	if [ -n "$include_dirs" ]; then
+		export PCR_INCLUDE_DIRS="$include_dirs"
+	fi
+	if [ -n "$exclude_dirs" ]; then
+		export PCR_EXCLUDE_DIRS="$exclude_dirs"
+	fi
+}
+
+print_effective_filters() {
+	local effective_include
+	local effective_exclude
+
+	effective_include="${PCR_INCLUDE_DIRS:-<none>}"
+	effective_exclude="${PCR_EXCLUDE_DIRS:-<none>}"
+
+	echo "[pcr] include-dirs=$effective_include (default: ${PCR_DEFAULT_INCLUDE_DIRS:-<none>})"
+	echo "[pcr] exclude-dirs=$effective_exclude (default: ${PCR_DEFAULT_EXCLUDE_DIRS:-<none>})"
+}
 
 include_dirs="${PCR_INCLUDE_DIRS:-}"
 exclude_dirs="${PCR_EXCLUDE_DIRS:-}"
 pass_args=()
 
-while [ $# -gt 0 ]; do
-	case "$1" in
-		--include-dirs)
-			if [ $# -lt 2 ]; then
-				echo "[pcr] Missing value for --include-dirs" >&2
-				exit 2
-			fi
-			include_dirs="$2"
-			shift 2
-			;;
-		--include-dirs=*)
-			include_dirs="${1#*=}"
-			shift
-			;;
-		--exclude-dirs)
-			if [ $# -lt 2 ]; then
-				echo "[pcr] Missing value for --exclude-dirs" >&2
-				exit 2
-			fi
-			exclude_dirs="$2"
-			shift 2
-			;;
-		--exclude-dirs=*)
-			exclude_dirs="${1#*=}"
-			shift
-			;;
-		*)
-			pass_args+=("$1")
-			shift
-			;;
-	esac
-done
-
-if [ -n "$include_dirs" ]; then
-	export PCR_INCLUDE_DIRS="$include_dirs"
-fi
-if [ -n "$exclude_dirs" ]; then
-	export PCR_EXCLUDE_DIRS="$exclude_dirs"
-fi
-
-effective_include="${PCR_INCLUDE_DIRS:-<none>}"
-effective_exclude="${PCR_EXCLUDE_DIRS:-<none>}"
-echo "[pcr] include-dirs=$effective_include (default: ${PCR_DEFAULT_INCLUDE_DIRS:-<none>})"
-echo "[pcr] exclude-dirs=$effective_exclude (default: ${PCR_DEFAULT_EXCLUDE_DIRS:-<none>})"
+init_defaults_from_config
+parse_cli_args include_dirs exclude_dirs pass_args "$@"
+apply_filter_env "$include_dirs" "$exclude_dirs"
+print_effective_filters
 
 exec "$HOOKS_PRECOMMIT" "${pass_args[@]}"
