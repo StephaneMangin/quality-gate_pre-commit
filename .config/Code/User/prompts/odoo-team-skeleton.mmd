@@ -1,0 +1,93 @@
+---
+config:
+  flowchart:
+    nodeSpacing: 22
+    rankSpacing: 32
+    padding: 6
+    useMaxWidth: true
+    htmlLabels: true
+  themeVariables:
+    fontSize: 12px
+---
+%% =====================================================================
+%% GENERIC Odoo AI team skeleton — reusable across any Odoo project.
+%% Workspaces specialize this by replacing <project> placeholders with
+%% concrete agent/skill names in their own .github/workflow.mmd.
+%%
+%% Source of truth: ~/.config/Code/User/prompts/odoo-team-skeleton.mmd
+%% Do NOT edit per-project — copy & adapt to .github/workflow.mmd instead.
+%% =====================================================================
+flowchart TB
+    USER([👤 Developer])
+
+    %% Generic triggers (defined in odoo-core.instructions.md)
+    USER --> T1["&lt;USER DEMAND&gt;"]
+    USER --> T2["&lt;USER ESTIMATE&gt;"]
+    USER --> TR["&lt;USER REVIEW&gt;<br/>read-only"]
+    USER --> TF["&lt;USER REFACTOR&gt;"]
+    USER --> T6["edit .py / .xml"]
+
+    %% Workspace entry point
+    T1 --> CI["📋 .github/<br/>copilot-instructions.md"]
+    T2 --> CI
+    TR --> CI
+    TF --> CI
+    T6 --> PC["⚙️ pre-commit hook<br/><i>workspace</i>"]
+
+    %% Orchestrator (project-specific Tech Lead agent)
+    CI --> ORCH["🤖 &lt;project&gt;-demand<br/><b>Tech Lead</b><br/>8-step workflow"]
+
+    %% USER REVIEW: read-only, routes directly to generic reviewer
+    CI -.->|read-only| G_REV
+
+    %% USER REFACTOR: refactor mode on the orchestrator
+    CI -.->|refactor mode| ORCH
+
+    %% USER ESTIMATE: routes to a workspace skill calibrating the generic methodology
+    CI -.->|estimate| SKILL["📐 demand_analysis<br/><i>workspace skill</i>"]
+
+    %% Step 3 — code: generic → project delta (2-layer pattern)
+    ORCH -->|step 3 model| G_MOD["⚙ odoo-model<br/><i>generic</i>"]
+    G_MOD --> P_MOD["🧬 &lt;project&gt;-patterns<br/><i>project delta</i>"]
+
+    ORCH -.->|step 3| G_VIEW["odoo-view"]
+    ORCH -.->|step 3| G_WIZ["odoo-wizard"]
+    ORCH -.->|step 3| G_SEC["odoo-security"]
+    ORCH -.->|step 3| G_DATA["odoo-data"]
+    ORCH -.->|step 3| G_REP["odoo-report"]
+    ORCH -.->|migration| G_MIG["odoo-migration"]
+
+    %% Step 4 — tests: generic → project delta
+    ORCH -->|step 4| G_TEST["🧪 odoo-test<br/><i>generic</i>"]
+    G_TEST --> P_TEST["🧪 &lt;project&gt;-test<br/><i>project delta</i>"]
+
+    %% Step 6 — pre-commit (generic only)
+    ORCH -->|step 6| G_PC["✨ odoo-precommit<br/><i>generic</i>"]
+    PC --> G_PC
+
+    %% Step 7 — review: generic → project delta
+    ORCH -->|step 7| G_REV["🔍 odoo-review<br/><i>generic</i>"]
+    G_REV --> P_REV["🛡 &lt;project&gt;-review<br/><i>project delta</i>"]
+
+    %% Step 8 — UAT video (project-specific harness)
+    ORCH -->|step 8| P_UAT["🎥 odoo-uat-records<br/><i>workspace</i>"]
+
+    %% Skill consumes generic analyzer
+    SKILL -.->|reads code| G_ANA["odoo-analyze"]
+
+    %% Styles
+    classDef trigger fill:#212f3d,color:#fff,stroke:#1a252f
+    classDef entry fill:#4a235a,color:#fff,stroke:#2c1654,font-weight:bold
+    classDef lead fill:#9c6644,color:#fff,stroke:#6f4518,stroke-width:3px
+    classDef generic fill:#5d4037,color:#fff,stroke:#3e2723,stroke-dasharray: 3 3
+    classDef project fill:#2d6a4f,color:#fff,stroke:#1b4332
+    classDef skill fill:#1a5276,color:#fff,stroke:#154360
+    classDef hook fill:#7d6608,color:#fff,stroke:#5d4e08
+
+    class T1,T2,TR,TF,T6 trigger
+    class CI entry
+    class ORCH lead
+    class G_MOD,G_TEST,G_PC,G_REV,G_VIEW,G_WIZ,G_SEC,G_DATA,G_REP,G_MIG,G_ANA generic
+    class P_MOD,P_TEST,P_REV,P_UAT project
+    class SKILL skill
+    class PC hook

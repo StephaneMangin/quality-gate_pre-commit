@@ -1,0 +1,171 @@
+---
+config:
+  flowchart:
+    nodeSpacing: 18
+    rankSpacing: 40
+    padding: 6
+    useMaxWidth: true
+    htmlLabels: true
+  themeVariables:
+    fontSize: 11px
+---
+%% =====================================================================
+%% Interaction graph — storage-first view (APL specialization)
+%% Generic template: ~/.config/Code/User/prompts/odoo-team-skeleton.mmd
+%% Three zones: user-level prompts, repo .github/, project asset uat_records/.
+%% Edges show loading / routing / execution between concrete files.
+%% =====================================================================
+flowchart TB
+    USER([👤 Dev])
+    COPILOT["🧠 Copilot agent<br/><i>main loop</i>"]
+    USER <==>|chat| COPILOT
+
+    %% ──────────────────────────── ZONE 1 ────────────────────────────
+    subgraph Z1["📁 ~/.config/Code/User/prompts/ &nbsp;<i>(per-developer)</i>"]
+        direction TB
+
+        subgraph Z1A["Instructions (apply by glob)"]
+            I_GEN["general"]
+            I_PY["python"]
+            I_ODOO["odoo"]
+            I_UAT["ui-uat-records"]
+            I_DB["database"]
+            I_DOCK["docker-devops"]
+            I_JS["javascript"]
+            I_REF["refactoring"]
+            I_REST["rest-api"]
+            I_WEB["web-frontend"]
+            I_GIT["git"]
+            I_PAT["pattern"]
+            I_PM["prompt-maintenance"]
+        end
+
+        subgraph Z1B["Generic Odoo agents"]
+            G_MOD["odoo-model"]
+            G_TEST["odoo-test"]
+            G_VIEW["odoo-view"]
+            G_WIZ["odoo-wizard"]
+            G_SEC["odoo-security"]
+            G_DATA["odoo-data"]
+            G_REP["odoo-report"]
+            G_PC["odoo-precommit"]
+            G_REV["odoo-review"]
+            G_MIG["odoo-migration"]
+            G_ANA["odoo-analyze"]
+            G_DBG["odoo-debug"]
+            G_SCA["odoo-scaffold"]
+            G_FIX["odoo-fix"]
+        end
+    end
+
+    %% ──────────────────────────── ZONE 2 ────────────────────────────
+    subgraph Z2["📁 odoo-apl/.github/ &nbsp;<i>(versioned, sole truth)</i>"]
+        direction TB
+
+        ENTRY["copilot-instructions.md<br/><b>entry point</b>"]
+        README["README.md"]
+        WF["workflow*.mmd<br/><i>graphes Mermaid</i>"]
+
+        subgraph Z2A["agents/ — APL specialists"]
+            A_DEM["odoo-demand<br/><b>Tech Lead</b>"]
+            A_API["odoo-api"]
+            A_UAT["odoo-uat-records"]
+            A_PAT["apl-patterns"]
+            A_TST["apl-test"]
+            A_REV["apl-review"]
+        end
+
+        subgraph Z2B["skills/"]
+            S_DA["demand_analysis/<br/>SKILL.md"]
+            S_ON["onboarding/<br/>SKILL.md"]
+        end
+
+        subgraph Z2C["hooks/"]
+            H_JSON["pre-commit-enforce.json"]
+            H_SH["scripts/<br/>pre-commit-on-edit.sh"]
+        end
+    end
+
+    %% ──────────────────────────── ZONE 3 ────────────────────────────
+    subgraph Z3["📁 odoo-apl/uat_records/ &nbsp;<i>(project asset)</i>"]
+        U_TESTS["tests/"]
+        U_PAGES["pages/"]
+        U_SCEN["scenarios/"]
+    end
+
+    %% ───────── Bootstrap: copilot auto-loads from .github/ ─────────
+    COPILOT ==>|auto-load on start| ENTRY
+    ENTRY -->|MANDATORY load| I_GEN & I_PY & I_ODOO & I_UAT
+    ENTRY -.->|conditional load by glob| I_DB & I_DOCK & I_JS & I_REF & I_REST & I_WEB & I_GIT & I_PAT
+    ENTRY -.->|references| README & WF
+
+    %% ───────── Native Copilot discovery (no symlinks) ─────────
+    COPILOT -.->|scans| Z2A
+    COPILOT -.->|scans| Z2B
+    COPILOT -.->|scans| Z2C
+
+    %% ───────── Trigger routing (entry → first agent/skill) ─────────
+    ENTRY -->|&lt;USER DEMAND&gt;| A_DEM
+    ENTRY -->|&lt;USER ESTIMATE&gt;| S_DA
+    ENTRY -.->|&lt;USER REVIEW&gt;<br/>read-only| G_REV
+    ENTRY -.->|&lt;USER REFACTOR&gt;<br/>refactor mode| A_DEM
+    ENTRY -.->|&lt;USER FIX&gt;<br/>existing code only| G_FIX["odoo-fix"]
+    ENTRY -->|video / MP4| A_UAT
+    ENTRY -->|onboarding| S_ON
+    ENTRY -->|api / topmotive| A_API
+
+    %% ───────── odoo-demand orchestration (2-layer pattern) ─────────
+    A_DEM ==>|step1 analyse| G_ANA
+    A_DEM ==>|step3 model| G_MOD --> A_PAT
+    A_DEM -.->|step3 view| G_VIEW
+    A_DEM -.->|step3 wizard| G_WIZ
+    A_DEM -.->|step3 security| G_SEC
+    A_DEM -.->|step3 data| G_DATA
+    A_DEM -.->|step3 report| G_REP
+    A_DEM -.->|step3 migration| G_MIG
+    A_DEM ==>|step3 API| A_API
+    A_DEM ==>|step4 tests| G_TEST --> A_TST
+    A_DEM ==>|step6 lint| G_PC
+    A_DEM ==>|step7 review| G_REV --> A_REV
+    A_DEM ==>|step8 video| A_UAT
+
+    %% ───────── Skills consume code/agents ─────────
+    S_DA -.->|reads code| G_ANA
+    S_DA -.->|delegates impl| A_DEM
+    S_ON -.->|maps modules| README
+
+    %% ───────── Hooks (event-driven, runtime) ─────────
+    H_JSON -->|PostToolUse| H_SH
+    H_SH -->|invokes| G_PC
+    USER -. "edits .py/.xml" .-> H_JSON
+
+    %% ───────── Cross-references between agents ─────────
+    A_API -->|reuses| G_MOD
+    A_API -->|reuses| G_TEST
+    A_UAT -->|uses| U_TESTS & U_PAGES & U_SCEN
+    A_UAT -->|reads| I_UAT
+    G_ANA -->|debug fallback| G_DBG
+    G_SCA -.->|new module| A_DEM
+
+    %% ──────────────────────── Styling ────────────────────────
+    classDef instr fill:#34495e,color:#fff,stroke:#2c3e50
+    classDef gagent fill:#5d4037,color:#fff,stroke:#3e2723,stroke-dasharray: 3 3
+    classDef aagent fill:#2d6a4f,color:#fff,stroke:#1b4332
+    classDef lead fill:#9c6644,color:#fff,stroke:#6f4518,stroke-width:3px
+    classDef skill fill:#1a5276,color:#fff,stroke:#154360
+    classDef hook fill:#7d6608,color:#fff,stroke:#5d4e08
+    classDef entry fill:#4a235a,color:#fff,stroke:#2c1654,font-weight:bold
+    classDef proj fill:#283747,color:#fff,stroke:#17202a
+    classDef doc fill:#212f3d,color:#fff,stroke:#1a252f
+    classDef actor fill:#0e6655,color:#fff,stroke:#0b5345,stroke-width:2px
+
+    class I_GEN,I_PY,I_ODOO,I_UAT,I_DB,I_DOCK,I_JS,I_REF,I_REST,I_WEB,I_GIT,I_PAT,I_PM instr
+    class G_MOD,G_TEST,G_VIEW,G_WIZ,G_SEC,G_DATA,G_REP,G_PC,G_REV,G_MIG,G_ANA,G_DBG,G_SCA,G_FIX gagent
+    class A_API,A_UAT,A_PAT,A_TST,A_REV aagent
+    class A_DEM lead
+    class S_DA,S_ON skill
+    class H_JSON,H_SH hook
+    class ENTRY entry
+    class U_TESTS,U_PAGES,U_SCEN proj
+    class README,WF doc
+    class USER,COPILOT actor

@@ -1,0 +1,105 @@
+---
+config:
+  flowchart:
+    nodeSpacing: 22
+    rankSpacing: 32
+    padding: 6
+    useMaxWidth: true
+    htmlLabels: true
+  themeVariables:
+    fontSize: 12px
+---
+%% =====================================================================
+%% APL specialization of the generic Odoo AI team skeleton.
+%% Generic template: ~/.config/Code/User/prompts/odoo-team-skeleton.mmd
+%% This file replaces <project> placeholders with concrete APL agents.
+%% =====================================================================
+flowchart TB
+    USER([👤 Développeur])
+
+    %% Triggers
+    USER --> T1["&lt;USER DEMAND&gt;"]
+    USER --> T2["&lt;USER ESTIMATE&gt;"]
+    USER --> TR["&lt;USER REVIEW&gt;"]
+    USER --> TF["&lt;USER REFACTOR&gt;"]
+    USER --> TX["&lt;USER FIX&gt;"]
+    USER --> T3["video / UAT"]
+    USER --> T4["onboarding"]
+    USER --> T5["api / fastapi / topmotive"]
+    USER --> T6["edit .py / .xml"]
+
+    %% Entry points
+    T1 --> CI["📋 copilot-instructions.md"]
+    T2 --> DA["📐 demand_analysis<br/><i>skill</i>"]
+    TR --> CI
+    TF --> CI
+    TX --> CI
+    T3 --> UAT["🎥 odoo-uat-records"]
+    T4 --> ONB["🚀 onboarding<br/><i>skill</i>"]
+    T5 --> API["🔌 odoo-api"]
+    T6 --> PC["⚙️ pre-commit hook"]
+
+    %% Orchestrator
+    CI --> AD["🤖 odoo-demand<br/><b>Tech Lead</b><br/>8-step workflow"]
+
+    %% USER REVIEW: read-only audit (no edits)
+    CI -.->|"&lt;USER REVIEW&gt;<br/>read-only"| GR2
+
+    %% USER REFACTOR: chained branches via odoo-demand refactor mode
+    CI -.->|"&lt;USER REFACTOR&gt;<br/>refactor mode"| AD
+
+    %% USER FIX: bounded patch on existing code only (no new files)
+    CI -.->|"&lt;USER FIX&gt;<br/>existing code only"| GFX["🩹 odoo-fix<br/><i>generic</i>"]
+
+    %% Step 3 — code: generic → APL
+    AD -->|step 3| GM["⚙ odoo-model<br/><i>generic</i>"]
+    GM --> AP["🧬 apl-patterns<br/><i>APL delta</i>"]
+
+    %% Other step-3 generics (no APL delta)
+    AD -.->|step 3| GV["odoo-view"]
+    AD -.->|step 3| GW["odoo-wizard"]
+    AD -.->|step 3| GS["odoo-security"]
+    AD -.->|step 3| GD["odoo-data"]
+    AD -.->|step 3| GR["odoo-report"]
+    AD -.->|migration| GMI["odoo-migration"]
+
+    %% Step 3 — API (already APL)
+    AD -->|step 3| API
+    API --> GM
+    API --> AT
+
+    %% Step 4 — tests: generic → APL
+    AD -->|step 4| GT["🧪 odoo-test<br/><i>generic</i>"]
+    GT --> AT["🧪 apl-test<br/><i>APL delta</i>"]
+
+    %% Step 6 — pre-commit (generic only)
+    AD -->|step 6| GPC["✨ odoo-precommit<br/><i>generic</i>"]
+    PC --> GPC
+
+    %% Step 7 — review: generic → APL
+    AD -->|step 7| GR2["🔍 odoo-review<br/><i>generic</i>"]
+    GR2 --> AR["🛡 apl-review<br/><i>APL delta</i>"]
+
+    %% Step 8 — UAT video
+    AD -->|step 8| UAT
+
+    %% Skills
+    DA -.->|reads code| GAN["odoo-analyze"]
+    DA --> USER
+
+    %% Styles
+    classDef trigger fill:#212f3d,color:#fff,stroke:#1a252f
+    classDef entry fill:#4a235a,color:#fff,stroke:#2c1654,font-weight:bold
+    classDef lead fill:#9c6644,color:#fff,stroke:#6f4518,stroke-width:3px
+    classDef generic fill:#5d4037,color:#fff,stroke:#3e2723,stroke-dasharray: 3 3
+    classDef apl fill:#2d6a4f,color:#fff,stroke:#1b4332
+    classDef skill fill:#1a5276,color:#fff,stroke:#154360
+    classDef hook fill:#7d6608,color:#fff,stroke:#5d4e08
+
+    class T1,T2,TR,TF,TX,T3,T4,T5,T6 trigger
+    class CI entry
+    class AD lead
+    class GM,GT,GPC,GR2,GV,GW,GS,GD,GR,GMI,GAN,GFX generic
+    class AP,AT,AR,API,UAT apl
+    class DA,ONB skill
+    class PC hook

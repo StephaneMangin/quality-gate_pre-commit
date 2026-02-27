@@ -1,0 +1,135 @@
+flowchart LR
+    %% ============================================================
+    %% Ancien graphe (version originale, layout horizontal large)
+    %% Conservé pour comparaison avec .github/workflow.mmd (TB compact)
+    %% ============================================================
+
+    USER([👤 Développeur])
+
+    subgraph TRIGGERS["🎯 Déclencheurs"]
+        T1["&lt;USER DEMAND&gt;"]
+        T2["&lt;USER ESTIMATE&gt;"]
+        T3["video / MP4 / UAT"]
+        T4["onboarding / découverte"]
+        T5["api / fastapi / graphql"]
+        T6["edit .py / .xml"]
+    end
+
+    USER --> T1 & T2 & T3 & T4 & T5 & T6
+
+    subgraph ENTRY["📋 Points d'entrée (.github/)"]
+        CI["copilot-instructions.md<br/><i>always active</i>"]
+        AGENTS_DIR["agents/"]
+        SKILLS_DIR["skills/"]
+        HOOKS_DIR["hooks/"]
+    end
+
+    T1 --> CI
+    CI --> AGENTS_DIR & SKILLS_DIR & HOOKS_DIR
+
+    subgraph INS["📚 Instructions (always-on context)"]
+        IG["general.instructions"]
+        IP["python.instructions"]
+        IO["odoo.instructions"]
+        IUAT["ui-uat-records.instructions"]
+        IREF["refactoring.instructions"]
+        IJS["javascript.instructions"]
+        IDB["database.instructions"]
+        IDOCK["docker-devops.instructions"]
+        IGIT["git.instructions"]
+    end
+
+    CI -.-> IG & IP & IO & IUAT & IREF & IJS & IDB & IDOCK & IGIT
+
+    subgraph WORKSPACE["🏢 Agents workspace (.github/agents/)"]
+        AD["🤖 odoo-demand<br/><b>Tech Lead</b><br/>8-step workflow"]
+        UAT["🎥 odoo-uat-records<br/>MP4 video evidence"]
+        API["🔌 odoo-api<br/>FastAPI / GraphQL / Topmotive"]
+        OM["⚙ odoo-model<br/>APL patterns"]
+        OT["🧪 odoo-test<br/>odootest mandatory"]
+        OPC["✨ odoo-precommit<br/>ruff / prettier"]
+        OR["🔍 odoo-review<br/>OCA + APL checklist"]
+    end
+
+    subgraph USER_LEVEL["👤 Agents user-level (~/.config/Code/User/prompts)"]
+        UODA["odoo-analyze"]
+        UOSC["odoo-scaffold"]
+        UOV["odoo-view"]
+        UODBG["odoo-debug"]
+        UOW["odoo-wizard"]
+        UORP["odoo-report"]
+        UOSEC["odoo-security"]
+        UODATA["odoo-data"]
+        UOMIG["odoo-migration"]
+    end
+
+    subgraph SK["💡 Skills (.github/skills/)"]
+        DA["📐 demand_analysis<br/>estimation chiffrage"]
+        ONB["🚀 onboarding<br/>découverte projet"]
+    end
+
+    subgraph HK["⚙️ Hooks (.github/hooks/)"]
+        PC["pre-commit-enforce<br/><i>PostToolUse</i>"]
+        SCRIPT["scripts/<br/>pre-commit-on-edit.sh"]
+    end
+
+    %% Routing depuis les triggers
+    T1 ==> AD
+    T2 --> DA
+    T3 --> UAT
+    T4 --> ONB
+    T5 --> API
+    T6 --> PC
+
+    %% Workflow odoo-demand (8 étapes)
+    AD -->|step 1 analyse| UODA
+    AD -->|step 3 code| OM
+    AD -->|step 3 code| API
+    AD -->|step 3 views| UOV
+    AD -->|step 3 wizard| UOW
+    AD -->|step 3 security| UOSEC
+    AD -->|step 3 data| UODATA
+    AD -->|step 4 tests| OT
+    AD -->|step 6 lint| OPC
+    AD -->|step 7 review| OR
+    AD -->|step 8 video| UAT
+    AD -.->|migration| UOMIG
+    AD -.->|report| UORP
+    AD -.->|scaffold| UOSC
+    AD -.->|debug| UODBG
+
+    %% odoo-api ré-utilise les specialists
+    API --> OM
+    API --> OT
+
+    %% Hook → pre-commit agent
+    PC --> SCRIPT
+    SCRIPT --> OPC
+
+    %% Skill → user
+    DA -.->|reads code| UODA
+    DA ==> USER
+
+    %% Instruction spécifique partagée
+    IUAT -.-> UAT
+
+    %% Styles
+    classDef trigger fill:#212f3d,color:#fff,stroke:#1a252f
+    classDef entry fill:#4a235a,color:#fff,stroke:#2c1654,font-weight:bold
+    classDef lead fill:#9c6644,color:#fff,stroke:#6f4518,stroke-width:3px
+    classDef ws_agent fill:#2d6a4f,color:#fff,stroke:#1b4332
+    classDef user_agent fill:#5d4037,color:#fff,stroke:#3e2723,stroke-dasharray: 3 3
+    classDef skill fill:#1a5276,color:#fff,stroke:#154360
+    classDef hook fill:#7d6608,color:#fff,stroke:#5d4e08
+    classDef instr fill:#36454F,color:#fff,stroke:#2c1654,stroke-dasharray: 2 2
+    classDef dir fill:#1c2833,color:#aed6f1,stroke:#5d6d7e
+
+    class T1,T2,T3,T4,T5,T6 trigger
+    class CI entry
+    class AGENTS_DIR,SKILLS_DIR,HOOKS_DIR dir
+    class AD lead
+    class UAT,API,OM,OT,OPC,OR ws_agent
+    class UODA,UOSC,UOV,UODBG,UOW,UORP,UOSEC,UODATA,UOMIG user_agent
+    class DA,ONB skill
+    class PC,SCRIPT hook
+    class IG,IP,IO,IUAT,IREF,IJS,IDB,IDOCK,IGIT instr
