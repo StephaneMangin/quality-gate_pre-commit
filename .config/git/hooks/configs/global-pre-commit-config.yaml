@@ -63,6 +63,7 @@ repos:
         args:
           - '-c'
           - |
+            command -v bandit >/dev/null 2>&1 || exit 0
             SOURCES=$(python3 ~/.config/git/hooks/tools/detect_python_sources.py --space)
             [ -n "$SOURCES" ] && bandit -c pyproject.toml -r $SOURCES || exit 0
         language: system
@@ -81,7 +82,9 @@ repos:
           - '-c'
           - |
             SOURCES=$(python3 ~/.config/git/hooks/tools/detect_python_sources.py --space)
-            [ -n "$SOURCES" ] && vulture $SOURCES --min-confidence 80 || exit 0
+            command -v vulture >/dev/null 2>&1 || exit 0
+            EXCLUDES=$(python3 -c "import os,sys; from pathlib import Path; p=Path.home()/'.config/git/hooks/configs/search-paths.conf'; ex=[]; seen=set(); lines=p.read_text(encoding='utf-8').splitlines() if p.exists() else []; [ex.append(i) for raw in lines for s in [raw.strip()] if s and not s.startswith('#') and '=' in s for k,v in [s.split('=',1)] if k.strip()=='SEARCH_EXCLUDED_DIRS' for i in [t.strip().rstrip('/') for t in v.split(',')] if i and i not in seen and not seen.add(i)]; [ex.append(i) for i in [t.strip().lstrip('./').rstrip('/') for t in os.getenv('QUALITY_GATE_EXCLUDE_DIRS','').split(',')] if i and i not in seen and not seen.add(i)]; print(','.join(ex))")
+            [ -n "$SOURCES" ] && vulture $SOURCES --exclude "$EXCLUDES" --min-confidence 80 || exit 0
         language: system
         pass_filenames: false
         types: [python]

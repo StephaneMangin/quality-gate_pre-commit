@@ -12,7 +12,13 @@ HOOKS_DIR = Path(__file__).resolve().parents[1]
 if str(HOOKS_DIR) not in sys.path:
     sys.path.insert(0, str(HOOKS_DIR))
 
-from lib.quality_gate_utils import ALWAYS_EXCLUDED_DIRS, PYTHON_SOURCE_DIRS  # noqa: E402
+from lib.quality_gate_utils import (  # noqa: E402
+    ALWAYS_EXCLUDED_DIRS,
+    PYTHON_SOURCE_DIRS,
+    _collect_files,
+    _collect_python_files,
+    _filter_paths_with_env_dirs,
+)
 
 
 def _is_excluded(path: Path, repo_root: Path) -> bool:
@@ -43,7 +49,15 @@ def detect_python_sources(repo_root: Path) -> list[str]:
     manifest_dirs = set()
     manifest_count_at_root = 0
 
-    for manifest in repo_root.glob("**/__manifest__.py"):
+    manifest_files = _collect_files(
+        repo_root,
+        patterns=["__manifest__.py"],
+        exclude_dirs=ALWAYS_EXCLUDED_DIRS,
+        include_hidden=False,
+    )
+    manifest_files = _filter_paths_with_env_dirs(manifest_files, repo_root)
+
+    for manifest in manifest_files:
         if _is_excluded(manifest, repo_root):
             continue
 
@@ -67,15 +81,8 @@ def detect_python_sources(repo_root: Path) -> list[str]:
     # Fallback: si aucune source détectée, chercher des fichiers Python
     if not sources:
         # Vérifier s'il y a des fichiers Python à la racine ou dans des sous-dossiers
-        has_python = False
-        for py_file in repo_root.glob("**/*.py"):
-            if _is_excluded(py_file, repo_root):
-                continue
-            if "setup" not in py_file.name.lower():  # Ignorer setup.py standalone
-                has_python = True
-                break
-
-        if has_python:
+        py_files = _collect_python_files(repo_root, include_hidden=True)
+        if any("setup" not in py_file.name.lower() for py_file in py_files):
             sources.append(".")
 
     # Dédupliquer

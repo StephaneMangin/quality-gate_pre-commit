@@ -241,6 +241,17 @@ def _filter_paths_with_env_dirs(paths: list[Path], repo_root: Path) -> list[Path
     ]
 
 
+def _collect_python_files(repo_root: Path, include_hidden: bool = True) -> list[Path]:
+    """Collect Python files with global exclusions + env include/exclude filters."""
+    py_files = _collect_files(
+        repo_root,
+        patterns=["*.py"],
+        exclude_dirs=ALWAYS_EXCLUDED_DIRS,
+        include_hidden=include_hidden,
+    )
+    return _filter_paths_with_env_dirs(py_files, repo_root)
+
+
 def _vulture_exclude_csv() -> str:
     """Build vulture --exclude CSV by merging technical and env exclude dirs."""
     _, exclude_dirs = _env_include_exclude_dirs()
@@ -264,14 +275,7 @@ def _detect_python_project(repo_root: Path, staged: list[Path]) -> bool:
         return True
     if any(path.suffix == ".py" for path in staged):
         return True
-    return bool(
-        _collect_files(
-            repo_root,
-            patterns=["*.py"],
-            exclude_dirs=ALWAYS_EXCLUDED_DIRS,
-            include_hidden=True,
-        )
-    )
+    return bool(_collect_python_files(repo_root, include_hidden=True))
 
 
 def _iter_python_targets(repo_root: Path, staged: list[Path]) -> list[str]:

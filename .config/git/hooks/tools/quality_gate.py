@@ -51,13 +51,11 @@ HOOKS_DIR = Path(__file__).resolve().parents[1]
 if str(HOOKS_DIR) not in sys.path:
     sys.path.insert(0, str(HOOKS_DIR))
 
-from lib.quality_gate_utils import (
-    ALWAYS_EXCLUDED_DIRS,
-    _collect_files,
+from lib.quality_gate_utils import (  # noqa: E402
+    _collect_python_files,
     _box_title,
     _detect_python_project,
     _ensure_tools_installed,
-    _filter_paths_with_env_dirs,
     _iter_with_progress,
     _iter_python_targets,
     _repo_root,
@@ -67,7 +65,7 @@ from lib.quality_gate_utils import (
     _tool_cmd,
     _vulture_exclude_csv,
 )
-from lib.quality_gate_dependency_utils import (
+from lib.quality_gate_dependency_utils import (  # noqa: E402
     _build_dependency_graph,
     _compute_dependency_metrics,
     _load_module_manifests,
@@ -242,13 +240,7 @@ def _check_maintainability(repo_root: Path, targets: list[str]) -> CheckResult:
     )
 
     if not stdout.strip():
-        py_files = _collect_files(
-            repo_root,
-            patterns=["*.py"],
-            exclude_dirs=ALWAYS_EXCLUDED_DIRS,
-            include_hidden=True,
-        )
-        py_files = _filter_paths_with_env_dirs(py_files, repo_root)
+        py_files = _collect_python_files(repo_root, include_hidden=True)
 
         fallback_target_set: set[str] = set()
         for path in _iter_with_progress(
@@ -601,6 +593,40 @@ def _run_check_timed(runner) -> tuple[CheckResult, float]:
     return result, time.perf_counter() - started
 
 
+def _build_checks(repo_root: Path, targets: list[str]):
+    """Build ordered list of checks to execute."""
+    return [
+        ("module dependencies", lambda: _check_module_dependencies(repo_root)),
+        ("complexity", lambda: _check_complexity(repo_root, targets)),
+        ("maintainability", lambda: _check_maintainability(repo_root, targets)),
+        ("dead code", lambda: _check_dead_code(repo_root, targets)),
+        ("coverage", lambda: _check_coverage(repo_root)),
+    ]
+
+
+def _run_checks(repo_root: Path, targets: list[str]) -> list[CheckResult]:
+    """Execute checks with optional timing report."""
+    checks = _build_checks(repo_root, targets)
+    results: list[CheckResult] = []
+    timings: list[tuple[str, float]] = []
+
+    for check_name, runner in checks:
+        result, elapsed = _run_check_timed(runner)
+        results.append(result)
+        timings.append((check_name, elapsed))
+
+    if TIMING_ENABLED and REPORT_LEVEL == "full":
+        _section_title("CHECK TIMINGS")
+        total = sum(duration for _, duration in timings)
+        for check_name, duration in sorted(
+            timings, key=lambda item: item[1], reverse=True
+        ):
+            print(f"    {check_name:<25} {duration:7.3f}s")
+        print(f"\n    {'TOTAL':<25} {total:7.3f}s\n")
+
+    return results
+
+
 def main() -> int:
     """Point d'entrée principal."""
     repo_root = _repo_root()
@@ -627,13 +653,7 @@ def main() -> int:
             f"[quality-gate] mode={QUALITY_GATE_MODE} | targets={', '.join(targets)}\n"
         )
 
-    results = [
-        _check_module_dependencies(repo_root),
-        _check_complexity(repo_root, targets),
-        _check_maintainability(repo_root, targets),
-        _check_dead_code(repo_root, targets),
-        _check_coverage(repo_root),
-    ]
+    results = _run_checks(repo_root, targets)
 
     any_failed, any_blocking_failed = _print_summary(results)
 
